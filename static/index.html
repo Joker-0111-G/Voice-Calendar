@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 语音日历</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+
+        .layout {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .panel {
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            flex: 1;
+            min-width: 300px;
+        }
+
+        /* 语音交互区 */
+        h1,
+        h2,
+        h3 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+
+        .mic-btn {
+            display: block;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #3498db;
+            color: white;
+            border: none;
+            font-size: 16px;
+            margin: 20px auto;
+            cursor: pointer;
+            transition: 0.3s;
+            box-shadow: 0 4px 10px rgba(52, 152, 219, 0.4);
+        }
+
+        .mic-btn.recording {
+            background: #e74c3c;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #7f8c8d;
+            min-height: 20px;
+        }
+
+        /* 日程列表样式 */
+        .event-list {
+            list-style: none;
+            padding: 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .event-item {
+            background: #ecf0f1;
+            margin-bottom: 10px;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 5px solid #3498db;
+        }
+
+        .event-item.today {
+            border-left-color: #e74c3c;
+        }
+
+        .event-item.upcoming {
+            border-left-color: #f1c40f;
+        }
+
+        .event-time {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .event-title {
+            font-size: 15px;
+        }
+
+        /* 日历表样式 */
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .calendar-header button {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #3498db;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            text-align: center;
+        }
+
+        .day-name {
+            font-weight: bold;
+            color: #7f8c8d;
+            font-size: 12px;
+            padding-bottom: 10px;
+        }
+
+        .day-cell {
+            padding: 10px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 14px;
+        }
+
+        .day-cell:hover {
+            background: #ecf0f1;
+        }
+
+        .day-cell.empty {
+            cursor: default;
+            background: none;
+        }
+
+        .day-cell.today {
+            background: #e74c3c;
+            color: white;
+            font-weight: bold;
+        }
+
+        .day-cell.selected {
+            border: 2px solid #3498db;
+            background: #ebf5fb;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="layout">
+        <div class="panel">
+            <h1>🎙️ AI 语音日历</h1>
+            <button id="micBtn" class="mic-btn">按住说话</button>
+            <div id="status" class="status">准备就绪，说“明天下午三点开会”或“删除开会”</div>
+            <audio id="audioPlayer" style="display:none;"></audio>
+
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+            <h3>📌 近三天日程 (今明后)</h3>
+            <ul id="upcomingList" class="event-list"></ul>
+        </div>
+
+        <div class="panel">
+            <div class="calendar-header">
+                <button onclick="changeMonth(-1)">◀</button>
+                <h3 id="monthDisplay" style="margin:0;">2026年5月</h3>
+                <button onclick="changeMonth(1)">▶</button>
+            </div>
+            <div class="calendar-grid" id="calendarGrid">
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+            <h3 id="selectedDateTitle">📅 选中日期日程</h3>
+            <ul id="selectedDateList" class="event-list"></ul>
+        </div>
+    </div>
+
+    <script>
+        // ======= 全局变量 =======
+        let currentDate = new Date();
+        let selectedDateStr = formatDate(new Date()); // 默认选中今天
+
+        // ======= 工具函数 =======
+        function formatDate(date) {
+            return date.getFullYear() + "-" +
+                String(date.getMonth() + 1).padStart(2, '0') + "-" +
+                String(date.getDate()).padStart(2, '0');
+        }
+
+        // 格式化时间显示 (例如：今天 15:00)
+        function formatEventTimeDisplay(dateStr, isAllDay) {
+            const date = new Date(dateStr);
+            const today = new Date();
+            const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+            const dayAfter = new Date(today); dayAfter.setDate(dayAfter.getDate() + 2);
+
+            let prefix = formatDate(date);
+            if (prefix === formatDate(today)) prefix = "今天";
+            else if (prefix === formatDate(tomorrow)) prefix = "明天";
+            else if (prefix === formatDate(dayAfter)) prefix = "后天";
+            else prefix = `${date.getMonth() + 1}月${date.getDate()}日`;
+
+            const timeStr = isAllDay ? "全天" : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return `${prefix} ${timeStr}`;
+        }
+
+        // ======= 日历表核心逻辑 =======
+        function renderCalendar() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            document.getElementById('monthDisplay').innerText = `${year}年 ${month + 1}月`;
+
+            const grid = document.getElementById('calendarGrid');
+            grid.innerHTML = '';
+
+            // 星期表头
+            const days = ['日', '一', '二', '三', '四', '五', '六'];
+            days.forEach(d => {
+                grid.innerHTML += `<div class="day-name">${d}</div>`;
+            });
+
+            // 计算月初和总天数
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const todayStr = formatDate(new Date());
+
+            // 填充空白
+            for (let i = 0; i < firstDay; i++) {
+                grid.innerHTML += `<div class="day-cell empty"></div>`;
+            }
+
+            // 填充日期
+            for (let i = 1; i <= daysInMonth; i++) {
+                const loopDateStr = formatDate(new Date(year, month, i));
+                let classes = "day-cell";
+                if (loopDateStr === todayStr) classes += " today";
+                if (loopDateStr === selectedDateStr) classes += " selected";
+
+                grid.innerHTML += `<div class="${classes}" onclick="selectDate('${loopDateStr}')">${i}</div>`;
+            }
+        }
+
+        function changeMonth(offset) {
+            currentDate.setMonth(currentDate.getMonth() + offset);
+            renderCalendar();
+        }
+
+        function selectDate(dateStr) {
+            selectedDateStr = dateStr;
+            document.getElementById('selectedDateTitle').innerText = `📅 ${dateStr} 日程`;
+            renderCalendar(); // 刷新高亮状态
+            loadEventsForSelectedDate();
+        }
+
+        // ======= 数据加载逻辑 =======
+        function loadEventsForSelectedDate() {
+            fetch(`/api/v1/events?date=${selectedDateStr}`)
+                .then(res => res.json())
+                .then(data => {
+                    const list = document.getElementById('selectedDateList');
+                    list.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        list.innerHTML = '<li style="text-align:center; color:#999;">这一天没有安排</li>';
+                        return;
+                    }
+                    data.data.forEach(event => {
+                        list.innerHTML += `
+                    <li class="event-item">
+                        <div class="event-time">⏰ ${formatEventTimeDisplay(event.start_time, event.is_all_day)}</div>
+                        <div class="event-title">${event.title}</div>
+                    </li>`;
+                    });
+                });
+        }
+
+        function loadUpcomingEvents() {
+            fetch(`/api/v1/events/upcoming`)
+                .then(res => res.json())
+                .then(data => {
+                    const list = document.getElementById('upcomingList');
+                    list.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        list.innerHTML = '<li style="text-align:center; color:#999;">近三天很空闲</li>';
+                        return;
+                    }
+                    data.data.forEach(event => {
+                        const todayStr = formatDate(new Date());
+                        const eventDateStr = formatDate(new Date(event.start_time));
+                        let styleClass = eventDateStr === todayStr ? 'today' : 'upcoming';
+
+                        list.innerHTML += `
+                    <li class="event-item ${styleClass}">
+                        <div class="event-time">🚀 ${formatEventTimeDisplay(event.start_time, event.is_all_day)}</div>
+                        <div class="event-title">${event.title}</div>
+                    </li>`;
+                    });
+                });
+        }
+
+        // 刷新所有数据
+        function refreshAllData() {
+            loadEventsForSelectedDate();
+            loadUpcomingEvents();
+        }
+
+        // ======= 语音识别逻辑 (保持不变) =======
+        const micBtn = document.getElementById('micBtn');
+        const statusText = document.getElementById('status');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'zh-CN';
+            recognition.interimResults = false;
+
+            recognition.onresult = function (event) {
+                const command = event.results[0][0].transcript;
+                statusText.innerText = "识别结果：" + command + " (处理中...)";
+
+                const formData = new FormData();
+                formData.append("text", command);
+
+                fetch('/api/v1/command', { method: 'POST', body: formData })
+                    .then(res => res.json())
+                    .then(data => {
+                        statusText.innerText = data.message || "处理完成";
+                        if (data.audio_url) {
+                            document.getElementById('audioPlayer').src = data.audio_url;
+                            document.getElementById('audioPlayer').play();
+                        }
+                        refreshAllData(); // 语音操作完成后刷新两边的列表
+                    })
+                    .catch(() => statusText.innerText = "请求失败，请检查后端。");
+            };
+        } else {
+            statusText.innerText = "你的浏览器不支持语音识别。";
+        }
+
+        micBtn.addEventListener('mousedown', () => {
+            if (recognition) { recognition.start(); micBtn.classList.add('recording'); micBtn.innerText = "聆听中"; }
+        });
+        micBtn.addEventListener('mouseup', () => {
+            if (recognition) { recognition.stop(); micBtn.classList.remove('recording'); micBtn.innerText = "按住说话"; }
+        });
+
+        // ======= 页面初始化 =======
+        window.onload = () => {
+            selectDate(selectedDateStr); // 默认加载今天
+            renderCalendar();
+            loadUpcomingEvents();
+        };
+    </script>
+
+</body>
+
+</html>
