@@ -107,3 +107,9 @@ func TextToAudio(text string) string {
 
 
 llm.go 使用deepseek API
+
+
+
+至此 后端所有框架基本已经全部完成，仅剩前端部分 
+
+这里我优先考虑 结合AI进行编写 并 进行子那个赢得整合 以达到最终演示效果  （5.30 3点20）
